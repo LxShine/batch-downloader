@@ -22,7 +22,7 @@
 
 ### 下载与安装
 
-1. 从 [Releases](https://github.com/your-repo/releases) 页面下载最新版本
+1. 从 [Releases](https://github.com/LxShine/batch-downloader/releases) 页面下载最新版本
 2. 解压后双击 `batch-downloader.exe` 即可运行
 
 ### 编译构建
@@ -36,7 +36,7 @@
 
 1. 克隆项目：
    ```
-   git clone https://github.com/your-repo/batch-downloader.git
+   git clone https://github.com/LxShine/batch-downloader.git
    cd batch-downloader
    ```
 
