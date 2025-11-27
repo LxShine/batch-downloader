@@ -141,7 +141,7 @@ func (a *App) createComponents() {
 	a.nameColumnsCheck = widget.NewCheckGroup([]string{}, func(selected []string) {
 		a.validateInputs("")
 	})
-	a.nameColumnsCheck.Horizontal = true // 水平显示
+	a.nameColumnsCheck.Horizontal = true // 横向显示，自动换行
 
 	// 其他配置
 	a.separatorEntry = a.createEntry(defaultSeparator, "列分隔符", false)
@@ -173,8 +173,9 @@ func (a *App) createComponents() {
 	// 日志区域
 	a.logText = widget.NewMultiLineEntry()
 	a.logText.SetPlaceHolder("📄 下载日志将在这里显示...")
-	a.logText.Disable()
 	a.logText.Wrapping = fyne.TextWrapWord
+	// 设置只读状态，但保持启用以显示正常颜色
+	a.logText.MultiLine = true
 
 	// 按钮
 	a.downloadBtn = widget.NewButton("🚀 开始下载", a.startDownload)
@@ -197,7 +198,7 @@ func (a *App) createForm() *widget.Form {
 		nameColumnsHint,
 	)
 	nameColumnsScroll := container.NewScroll(nameColumnsCard)
-	nameColumnsScroll.SetMinSize(fyne.NewSize(450, 120))
+	nameColumnsScroll.SetMinSize(fyne.NewSize(450, 150)) // 增加高度以容纳换行显示
 
 	return widget.NewForm(
 		widget.NewFormItem("📂 Excel 文件", container.NewBorder(nil, nil, nil,
@@ -246,6 +247,9 @@ func (a *App) createLogArea() *container.Scroll {
 		fyne.TextAlignLeading,
 		fyne.TextStyle{Bold: true},
 	)
+
+	// 设置日志文本框为启用状态以显示正常文字颜色
+	a.logText.Enable()
 
 	// 日志内容区域
 	logContainer := container.NewBorder(
@@ -331,9 +335,15 @@ func (a *App) loadExcelHeaders() {
 
 	a.excelHeaders = headers
 
+	// 自动识别下载链接列
+	urlColumnIndex := a.detectURLColumn(excelPath, headers)
+
 	// 更新URL列下拉框
 	a.urlColumnSelect.Options = headers
-	if len(headers) > 0 {
+	if urlColumnIndex >= 0 && urlColumnIndex < len(headers) {
+		a.urlColumnSelect.SetSelected(headers[urlColumnIndex])
+		a.addLog(fmt.Sprintf("✅ 自动识别到下载链接列: %s", headers[urlColumnIndex]))
+	} else if len(headers) > 0 {
 		a.urlColumnSelect.SetSelected(headers[0]) // 默认选择第一列
 	}
 	a.urlColumnSelect.Refresh()
@@ -341,10 +351,20 @@ func (a *App) loadExcelHeaders() {
 	// 更新文件名列多选框
 	a.nameColumnsCheck.Options = headers
 	if len(headers) > 1 {
-		// 默认选中第2-4列
+		// 默认选中非 URL 列的其他列（第2-4列）
 		defaultSelected := []string{}
 		for i := 1; i < len(headers) && i < 4; i++ {
-			defaultSelected = append(defaultSelected, headers[i])
+			if i != urlColumnIndex { // 排除URL列
+				defaultSelected = append(defaultSelected, headers[i])
+			}
+		}
+		// 如果排除后没有列了，至少选中一列
+		if len(defaultSelected) == 0 && len(headers) > 1 {
+			for i := 0; i < len(headers) && len(defaultSelected) < 3; i++ {
+				if i != urlColumnIndex {
+					defaultSelected = append(defaultSelected, headers[i])
+				}
+			}
 		}
 		a.nameColumnsCheck.Selected = defaultSelected
 	}
@@ -352,6 +372,64 @@ func (a *App) loadExcelHeaders() {
 
 	a.validateInputs("")
 	a.addLog(fmt.Sprintf("✓ 已加载Excel表头，共 %d 列", len(headers)))
+}
+
+// detectURLColumn 自动检测包含URL的列
+func (a *App) detectURLColumn(excelPath string, headers []string) int {
+	// 读取前几行数据进行分析
+	sampleData, err := downloader.ReadExcelSampleData(excelPath, 5) // 读取前5行
+	if err != nil || len(sampleData) == 0 {
+		return -1
+	}
+
+	// 统计每列包含URL的数量
+	urlCounts := make([]int, len(headers))
+	for _, row := range sampleData {
+		for i, cell := range row {
+			if i >= len(headers) {
+				break
+			}
+			cellValue := strings.TrimSpace(cell)
+			if a.isLikelyURL(cellValue) {
+				urlCounts[i]++
+			}
+		}
+	}
+
+	// 找到包含URL最多的列
+	maxCount := 0
+	maxIndex := -1
+	for i, count := range urlCounts {
+		if count > maxCount {
+			maxCount = count
+			maxIndex = i
+		}
+	}
+
+	// 如果至少有50%的样本包含URL，则认为找到了URL列
+	if maxCount >= len(sampleData)/2 {
+		return maxIndex
+	}
+
+	return -1
+}
+
+// isLikelyURL 判断字符串是否像URL
+func (a *App) isLikelyURL(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return false
+	}
+	// 检查常见的URL协议
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") ||
+		strings.HasPrefix(s, "ftp://") || strings.HasPrefix(s, "ftps://") {
+		return true
+	}
+	// 检查是否包含域名样式（简单判断）
+	if strings.Contains(s, "://") {
+		return true
+	}
+	return false
 }
 
 // isValidPath 验证路径是否有效
@@ -487,9 +565,13 @@ func (a *App) executeDownload() {
 func (a *App) cancelDownload() {
 	if a.downloadManager != nil && a.downloadManager.IsRunning() {
 		a.addLog("🛑 正在取消下载...")
+		// 禁用取消按钮防止重复点击
+		a.cancelBtn.Disable()
 		// Cancel()会阻塞直到所有worker停止，然后会触发completionCallback
 		// 所以这里不需要调用downloadComplete
-		a.downloadManager.Cancel()
+		go func() {
+			a.downloadManager.Cancel()
+		}()
 	}
 }
 
@@ -501,6 +583,8 @@ func (a *App) downloadComplete(success bool) {
 		a.progressBar.SetValue(1.0)
 	} else {
 		a.statusLabel.SetText("⛔ 下载已停止")
+		// 确保取消按钮重新启用
+		a.cancelBtn.Enable()
 	}
 }
 

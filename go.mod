@@ -4,7 +4,6 @@ go 1.25
 
 require (
 	fyne.io/fyne/v2 v2.7.1
-	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	github.com/xuri/excelize/v2 v2.10.0
 )
 
