@@ -4,13 +4,41 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
 
 	"batch-downloader/config"
 
 	"github.com/xuri/excelize/v2"
 )
+
+// ReadExcelSampleData 读取Excel文件的前N行数据（跳过表头）
+func ReadExcelSampleData(excelPath string, maxRows int) ([][]string, error) {
+	f, err := excelize.OpenFile(excelPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开Excel文件失败: %v", err)
+	}
+	defer f.Close()
+
+	sheetName := f.GetSheetName(0)
+	if sheetName == "" {
+		return nil, fmt.Errorf("Excel文件中没有工作表")
+	}
+
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("读取Excel数据失败: %v", err)
+	}
+
+	if len(rows) < 2 {
+		return nil, nil
+	}
+
+	dataRows := rows[1:]
+	if len(dataRows) > maxRows {
+		dataRows = dataRows[:maxRows]
+	}
+	return dataRows, nil
+}
 
 // ReadExcelHeaders 读取Excel文件的表头
 func ReadExcelHeaders(excelPath string) ([]string, error) {
@@ -43,44 +71,6 @@ func ReadExcelHeaders(excelPath string) ([]string, error) {
 	}
 
 	return headers, nil
-}
-
-// ReadExcelSampleData 读取Excel文件的样本数据（用于自动识别）
-func ReadExcelSampleData(excelPath string, maxRows int) ([][]string, error) {
-	f, err := excelize.OpenFile(excelPath)
-	if err != nil {
-		return nil, fmt.Errorf("打开Excel文件失败: %v", err)
-	}
-	defer f.Close()
-
-	// 获取第一个工作表
-	sheetName := f.GetSheetName(0)
-	if sheetName == "" {
-		return nil, fmt.Errorf("Excel文件中没有工作表")
-	}
-
-	// 获取所有行
-	rows, err := f.GetRows(sheetName)
-	if err != nil {
-		return nil, fmt.Errorf("读取Excel数据失败: %v", err)
-	}
-
-	if len(rows) < 2 {
-		return nil, fmt.Errorf("Excel文件没有数据行")
-	}
-
-	// 跳过表头，返回样本数据行
-	sampleRows := [][]string{}
-	endRow := len(rows)
-	if maxRows > 0 && maxRows+1 < len(rows) {
-		endRow = maxRows + 1 // +1 因为跳过表头
-	}
-
-	for i := 1; i < endRow; i++ {
-		sampleRows = append(sampleRows, rows[i])
-	}
-
-	return sampleRows, nil
 }
 
 type ExcelParser struct {
@@ -145,7 +135,9 @@ func (p *ExcelParser) Parse(urlColumn, nameColumns, separator, fileExtension str
 
 		// 构建文件名
 		filename := p.buildFilename(row, nameColIndices, separator)
-		// 不再跳过文件名为空的行，因为buildFilename会生成默认文件名
+		if filename == "" {
+			continue
+		}
 
 		// 确定文件扩展名
 		ext := p.determineFileExtension(fileExtension, url)
@@ -180,18 +172,13 @@ func (p *ExcelParser) buildFilename(row []string, nameColIndices []int, separato
 			if value != "" {
 				// 清理文件名中的非法字符
 				value = p.cleanFilename(value)
-				if value != "" { // 确保清理后不为空
-					nameParts = append(nameParts, value)
-				}
+				nameParts = append(nameParts, value)
 			}
 		}
 	}
 
-	// 如果所有列都为空，生成默认文件名
 	if len(nameParts) == 0 {
-		// 使用时间戳和随机数生成唯一文件名
-		timestamp := time.Now().Format("20060102_150405")
-		return fmt.Sprintf("file_%s_%d", timestamp, time.Now().Nanosecond()%10000)
+		return ""
 	}
 
 	return strings.Join(nameParts, separator)

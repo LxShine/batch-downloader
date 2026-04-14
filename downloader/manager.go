@@ -2,7 +2,6 @@ package downloader
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,7 +98,7 @@ func (dm *DownloadManager) sendTasks(tasks []DownloadTask) {
 }
 
 func (dm *DownloadManager) processResults() {
-	var successCount, failCount, emptyLinkCount int
+	var successCount, failCount int
 	startTime := time.Now()
 	lastLogTime := time.Now()
 
@@ -118,11 +117,6 @@ func (dm *DownloadManager) processResults() {
 				successCount++
 			} else {
 				failCount++
-				// 检查是否是空链接错误
-				if strings.Contains(result.Error.Error(), "empty URL") ||
-					strings.Contains(result.Error.Error(), "invalid URL") {
-					emptyLinkCount++
-				}
 			}
 
 			// 更新进度（每次都更新）
@@ -146,8 +140,8 @@ func (dm *DownloadManager) processResults() {
 			if shouldLog && int(completed)%10 == 0 {
 				elapsed := time.Since(startTime)
 				rate := float64(completed) / elapsed.Seconds()
-				dm.logCallback(fmt.Sprintf("📊 已完成: %d/%d, 成功: %d, 失败: %d, 空链接: %d, 速度: %.1f 个/秒",
-					completed, dm.totalTasks, successCount, failCount, emptyLinkCount, rate))
+				dm.logCallback(fmt.Sprintf("📊 已完成: %d/%d, 成功: %d, 失败: %d, 速度: %.1f 个/秒",
+					completed, dm.totalTasks, successCount, failCount, rate))
 			}
 		case <-time.After(100 * time.Millisecond):
 			// 每100ms检查一次是否被取消
@@ -161,17 +155,17 @@ finish:
 	// 完成处理
 	dm.isRunning.Store(false)
 
-	// 报告最终结果（使用绿色加粗字体）
+	// 报告最终结果
 	if dm.isCancelled.Load() {
 		// 取消操作
-		dm.logCallback(fmt.Sprintf("⛔ 下载已取消! 已完成: %d, **成功: %d, 失败: %d, 空链接: %d**",
-			atomic.LoadInt32(&dm.completedTasks), successCount, failCount, emptyLinkCount))
+		dm.logCallback(fmt.Sprintf("⛔ 下载已取消! 已完成: %d, 成功: %d, 失败: %d",
+			atomic.LoadInt32(&dm.completedTasks), successCount, failCount))
 		dm.completionCallback(false)
 	} else {
 		// 正常完成
 		elapsed := time.Since(startTime)
-		dm.logCallback(fmt.Sprintf("🎉 **下载完成! 成功: %d, 失败: %d, 空链接: %d, 总耗时: %v**",
-			successCount, failCount, emptyLinkCount, elapsed.Round(time.Second)))
+		dm.logCallback(fmt.Sprintf("🎉 下载完成! 成功: %d, 失败: %d, 总耗时: %v",
+			successCount, failCount, elapsed.Round(time.Second)))
 		dm.completionCallback(true)
 	}
 }
