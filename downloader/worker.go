@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"batch-downloader/config"
-	"strings"
 )
 
 type DownloadWorker struct {
@@ -105,16 +104,6 @@ func (w *DownloadWorker) downloadWithRetry(task DownloadTask) DownloadResult {
 func (w *DownloadWorker) downloadFile(task DownloadTask) DownloadResult {
 	startTime := time.Now()
 
-	// 验证URL是否为空
-	if strings.TrimSpace(task.URL) == "" {
-		return DownloadResult{
-			Task:     task,
-			Success:  false,
-			Error:    fmt.Errorf("empty URL"),
-			Filename: task.Filename,
-		}
-	}
-
 	// 确保目录存在
 	dir := filepath.Dir(task.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -143,15 +132,6 @@ func (w *DownloadWorker) downloadFile(task DownloadTask) DownloadResult {
 	if err != nil {
 		file.Close()
 		os.Remove(tempFile)
-		// 检查是否是URL格式错误
-		if strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "unsupported protocol") {
-			return DownloadResult{
-				Task:     task,
-				Success:  false,
-				Error:    fmt.Errorf("invalid URL: %v", err),
-				Filename: task.Filename,
-			}
-		}
 		return DownloadResult{
 			Task:     task,
 			Success:  false,
